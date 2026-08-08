@@ -1,6 +1,6 @@
 [package]
 name = "powerlog"
-version = "26.0.0"
+version = "26.1.0"
 description = "PowerLog - PowerShell Operational event log viewer"
 authors = ["PowerLog"]
 edition = "2021"

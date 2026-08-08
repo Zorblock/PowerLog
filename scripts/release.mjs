@@ -19,9 +19,13 @@ if (mode !== "minor" && mode !== "patch") {
 }
 
 function run(command, args) {
+  // npm / npx are `.cmd` shims on Windows; run those through the shell.
+  // Everything else (git, gh, node) must stay shell-less so args pass verbatim.
+  const shell = process.platform === "win32" && (command === "npm" || command === "npx");
   execFileSync(command, args, {
     cwd: root,
     stdio: "inherit",
+    shell,
   });
 }
 
