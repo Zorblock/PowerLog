@@ -237,11 +237,11 @@ function App() {
   return <div className="app" style={accentStyle}>
     <header className="topbar">
       <img className="hero-logo" src="/hero.png" alt="PowerLog" draggable={false} />
+      <label className="search">
+        <FontAwesomeIcon icon={faMagnifyingGlass} aria-hidden="true" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page" aria-label="Search event log" />
+      </label>
       <div className="controls">
-        <label className="search">
-          <FontAwesomeIcon icon={faMagnifyingGlass} aria-hidden="true" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page" aria-label="Search event log" />
-        </label>
         {accentPicker(true)}
         {fullScanActive ? <button className="btn" onClick={cancelFullScan}>Stop full scan</button> : <button className="btn" onClick={() => void fullScan()} disabled={loading} title="Load every recorded PowerShell event in the background">Full scan</button>}
         <button className="btn btn-primary" onClick={scan} disabled={loading} title="Read the newest PowerShell events">
