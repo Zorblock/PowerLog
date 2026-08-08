@@ -1,27 +1,44 @@
 # PowerLog
 
-A desktop viewer for `Microsoft-Windows-PowerShell/Operational`. **Fast Scan** loads the newest 100 events and lets you browse older pages on demand. **Full Scan** reads every event in those same small background pages with progress reporting, so large logs do not freeze the application. Select an event to inspect its recorded command/message, timestamp, event and record IDs, computer, process, thread and user context.
+**PowerLog** is a lightweight desktop viewer for the Windows PowerShell event log. It shows you at a glance what PowerShell has been running that is on your machine — much clearer than digging through the Windows Event Viewer yourself.
 
-## Development
+## What can PowerLog do?
 
-```bash
-npm install
-npm run start
-```
+- **Scan** – This button loads the newest entries from the PowerShell event log. One click is all it takes.
+- **Clean overview table** – Each entry shows the timestamp, level, event ID and the full text of the command or recorded ScriptBlock.
+- **Color coding** – Blue means Information, Orange/Yellow means Warning, Red means Error. Important messages stand out immediately.
+- **Live search** – The search bar filters all entries in real time by text, event ID or level.
+- **Copy** – A Copy button on every entry point puts the command text straight onto your clipboard, e.g. for documentation or further investigation.
+- **Refresh** – Reload the newest entries at any time.
 
-`npm run start` now runs Tauri in development mode with Vite hot reload. Use `npm run start:release` only when you want to build and launch the standalone release executable.
+## What is it useful for?
 
-## Releases
+PowerShell records many entries in its operational log in the background, including executed **script blocks** (event ID 4104). With PowerLog you can:
 
-Run releases from a clean, committed worktree on an x64 Windows machine:
+- see which PowerShell scripts have recently run on your machine,
+- find suspicious or otherwise noteworthy commands,
+- spot warnings and errors quickly,
+- copy individual commands from the log and investigate them further.
 
-```bash
-npm run release # yearly minor: 26.5.2 -> 26.6.0
-npm run patch   # patch:        26.1.4 -> 26.1.5
-```
+PowerLog is a practical companion for understanding PowerShell activity on your own system.
 
-The first release in a new calendar year starts at `YY.0.0` (for example, `26.0.0`). The workflow synchronizes the version in the Node, Tauri and Cargo manifests, builds `PowerLog-x64-<version>.exe`, creates and pushes a Git tag, and publishes the executable with generated notes to the GitHub release for `Zorblock/PowerLog`.
+## How to get started
+
+1. Download the portable `PowerLog.exe` file.
+2. **Double-click** `PowerLog.exe` – that is all you need to do. Nothing is installed.
+3. Click **Scan** and the newest entries are loaded.
+
+PowerLog runs straight from any folder and leaves no traces on your system.
+
+## Requirements
+
+- Windows 10 or 11
+- PowerShell event logging enabled (on by default on most systems)
+- WebView2 runtime (preinstalled on virtually every Windows 10/11 machine)
 
 ## Notes
 
-PowerLog can show events recorded by the Windows PowerShell Operational log, including script-block events such as Event ID 4104. Windows can only display activity that its auditing/logging has recorded; commands run while logging is disabled cannot be reconstructed afterwards.
+- PowerLog shows the **newest 200 events** per scan; use **Refresh** to load more current entries.
+- PowerLog is a **read-only viewer** and does not alter anything on your system.
+- It can only display events that Windows has actually recorded. If logging was disabled at some point, that activity cannot be reconstructed afterwards.
+- The PowerLog user interface is in **English**.
