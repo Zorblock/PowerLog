@@ -1,6 +1,6 @@
 # PowerLog
 
-A desktop viewer for the complete `Microsoft-Windows-PowerShell/Operational` event log. Select an event to inspect its recorded command/message, timestamp, event and record IDs, computer, process, thread and user context.
+A desktop viewer for `Microsoft-Windows-PowerShell/Operational`. Events are loaded in responsive 100-record pages, so large logs do not freeze the application. Select an event to inspect its recorded command/message, timestamp, event and record IDs, computer, process, thread and user context.
 
 ## Development
 

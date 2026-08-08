@@ -17,6 +17,12 @@ interface LogEntry {
   opcode: string | null;
 }
 
+interface LogPage {
+  entries: LogEntry[];
+  hasMore: boolean;
+  nextBeforeRecordId: number | null;
+}
+
 type Key = "timeCreated" | "id" | "level";
 type Dir = "asc" | "desc";
 
@@ -27,15 +33,10 @@ function parsePowerTime(value: string): Date {
 
 function formatTime(value: string): string {
   const date = parsePowerTime(value);
-  if (Number.isNaN(date.getTime())) return value || "—";
+  if (Number.isNaN(date.getTime())) return value || "-";
   return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   }).format(date);
 }
 
@@ -60,7 +61,8 @@ function CopyIcon() {
 }
 
 function App() {
-  const [entries, setEntries] = useState<LogEntry[]>([]);
+  const [pages, setPages] = useState<LogPage[]>([]);
+  const [pageIndex, setPageIndex] = useState(0);
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,12 +73,22 @@ function App() {
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<number | null>(null);
 
-  const load = useCallback(async () => {
+  const currentPage = pages[pageIndex];
+  const entries = currentPage?.entries ?? [];
+
+  const loadPage = useCallback(async (beforeRecordId: number | null, index: number, reset = false) => {
     setLoading(true);
     setError(null);
     try {
-      const logs = await invoke<LogEntry[]>("get_power_logs");
-      setEntries(Array.isArray(logs) ? logs : []);
+      const page = await invoke<LogPage>("get_power_log_page", { beforeRecordId });
+      if (!Array.isArray(page.entries)) throw new Error("The event log returned an invalid page.");
+      setPages((current) => {
+        if (reset) return [page];
+        const next = current.slice(0, index);
+        next[index] = page;
+        return next;
+      });
+      setPageIndex(index);
       setSelectedKey(null);
       setScanned(true);
     } catch (cause) {
@@ -86,21 +98,28 @@ function App() {
     }
   }, []);
 
+  const scan = useCallback(() => { void loadPage(null, 0, true); }, [loadPage]);
+
+  const previousPage = () => {
+    if (pageIndex === 0) return;
+    setPageIndex(pageIndex - 1);
+    setSelectedKey(null);
+  };
+
+  const nextPage = () => {
+    if (!currentPage?.hasMore || loading) return;
+    const nextIndex = pageIndex + 1;
+    if (pages[nextIndex]) {
+      setPageIndex(nextIndex);
+      setSelectedKey(null);
+    } else {
+      void loadPage(currentPage.nextBeforeRecordId, nextIndex);
+    }
+  };
+
   const rows = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
-    const filtered = query
-      ? entries.filter((entry) => [
-          entry.message,
-          entry.level,
-          entry.id,
-          entry.provider,
-          entry.recordId,
-          entry.computer,
-          entry.userId,
-          entry.processId,
-          entry.task,
-        ].some((value) => String(value ?? "").toLocaleLowerCase().includes(query)))
-      : entries;
+    const filtered = query ? entries.filter((entry) => [entry.message, entry.level, entry.id, entry.provider, entry.recordId, entry.computer, entry.userId, entry.processId, entry.task].some((value) => String(value ?? "").toLocaleLowerCase().includes(query))) : entries;
     const multiplier = dir === "asc" ? 1 : -1;
     return [...filtered].sort((a, b) => {
       if (key === "id") return (a.id - b.id) * multiplier;
@@ -109,25 +128,18 @@ function App() {
     });
   }, [dir, entries, key, search]);
 
-  const selected = useMemo(
-    () => entries.find((entry) => `${entry.recordId ?? entry.timeCreated}:${entry.id}` === selectedKey) ?? null,
-    [entries, selectedKey],
-  );
+  const selected = useMemo(() => entries.find((entry) => `${entry.recordId ?? entry.timeCreated}:${entry.id}` === selectedKey) ?? null, [entries, selectedKey]);
 
   const toggleSort = (nextKey: Key) => {
     if (nextKey === key) setDir((current) => current === "asc" ? "desc" : "asc");
-    else {
-      setKey(nextKey);
-      setDir(nextKey === "timeCreated" ? "desc" : "asc");
-    }
+    else { setKey(nextKey); setDir(nextKey === "timeCreated" ? "desc" : "asc"); }
   };
 
   const copyCommand = async (entry: LogEntry) => {
     const text = entry.message?.trim() || "";
     if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
+    try { await navigator.clipboard.writeText(text); }
+    catch {
       const field = document.createElement("textarea");
       field.value = text;
       document.body.appendChild(field);
@@ -140,79 +152,64 @@ function App() {
     copyTimer.current = window.setTimeout(() => setCopied(false), 1600);
   };
 
-  const sortGlyph = (column: Key) => key === column ? (dir === "asc" ? " ↑" : " ↓") : "";
+  const sortGlyph = (column: Key) => key === column ? (dir === "asc" ? " ^" : " v") : "";
 
-  return (
-    <div className="app">
-      <header className="topbar">
-        <img className="hero-logo" src="/hero.png" alt="PowerLog" draggable={false} />
-        <div className="controls">
-          <label className="search">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search all event data…" aria-label="Search event log" />
-          </label>
-          <button className="btn btn-primary" onClick={load} disabled={loading} title="Read the complete PowerShell Operational log">
-            <svg className={loading ? "spin" : ""} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
-            {loading ? "Scanning…" : scanned ? "Refresh" : "Scan log"}
-          </button>
-        </div>
-      </header>
-
-      <div className={`statusbar${error ? " is-error" : ""}`}>
-        {loading ? "Reading the complete PowerShell Operational event log…" : error ? error : scanned ? `${rows.length.toLocaleString()} of ${entries.length.toLocaleString()} events · Select an event to inspect it` : "The log has not been scanned yet — click Scan log to continue."}
+  return <div className="app">
+    <header className="topbar">
+      <img className="hero-logo" src="/hero.png" alt="PowerLog" draggable={false} />
+      <div className="controls">
+        <label className="search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page" aria-label="Search event log" />
+        </label>
+        <button className="btn btn-primary" onClick={scan} disabled={loading} title="Read the newest PowerShell events">
+          <svg className={loading ? "spin" : ""} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
+          {loading ? "Loading..." : scanned ? "Refresh" : "Scan log"}
+        </button>
       </div>
+    </header>
 
-      {!scanned && !loading ? (
-        <main className="scan-cta">
-          <img src="/hero.png" alt="PowerLog" draggable={false} />
-          <h1>PowerShell activity, clearly documented.</h1>
-          <p>Read the complete <code>Microsoft-Windows-PowerShell/Operational</code> log, including script blocks and their full recorded command text.</p>
-          <button className="btn btn-primary btn-large" onClick={load}>Scan PowerShell log</button>
-        </main>
-      ) : loading && entries.length === 0 ? <main className="empty">Scanning the event log…</main> : (
-        <main className="workspace">
-          <section className="table-wrap" aria-label="PowerShell events">
-            {scanned && entries.length === 0 ? <div className="empty">No entries were found in the PowerShell Operational log.</div> : null}
-            {scanned && entries.length > 0 && rows.length === 0 ? <div className="empty">No events match your search.</div> : null}
-            {rows.length > 0 ? <table className="log-table">
-              <thead><tr>
-                <th className="col-time" onClick={() => toggleSort("timeCreated")}>Time{sortGlyph("timeCreated")}</th>
-                <th className="col-level" onClick={() => toggleSort("level")}>Level{sortGlyph("level")}</th>
-                <th className="col-id" onClick={() => toggleSort("id")}>Event ID{sortGlyph("id")}</th>
-                <th>Recorded command / message</th>
-              </tr></thead>
-              <tbody>{rows.map((entry) => {
-                const entryKey = `${entry.recordId ?? entry.timeCreated}:${entry.id}`;
-                const tone = levelTone(entry.level);
-                return <tr key={entryKey} className={`tone-${tone}${selectedKey === entryKey ? " selected" : ""}`} onClick={() => setSelectedKey(entryKey)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedKey(entryKey); }} tabIndex={0} aria-label={`Open event ${entry.id}`}>
-                  <td className="col-time mono">{formatTime(entry.timeCreated)}</td>
-                  <td className="col-level"><span className={`badge badge-${tone}`}>{entry.level || "Verbose"}</span></td>
-                  <td className="col-id mono">{entry.id}</td>
-                  <td className="col-msg mono">{entry.message?.trim() || "—"}</td>
-                </tr>;
-              })}</tbody>
-            </table> : null}
-          </section>
-
-          <aside className="inspector" aria-label="Event details">
-            {selected ? <>
-              <div className="inspector-heading"><div><p className="eyebrow">{eventKind(selected)}</p><h2>Event {selected.id}</h2></div><button className="icon-button" onClick={() => setSelectedKey(null)} aria-label="Close event details">×</button></div>
-              <dl className="metadata">
-                <div><dt>Time</dt><dd>{formatTime(selected.timeCreated)}</dd></div>
-                <div><dt>Record ID</dt><dd className="mono">{selected.recordId ?? "—"}</dd></div>
-                <div><dt>Computer</dt><dd>{selected.computer || "—"}</dd></div>
-                <div><dt>Provider</dt><dd>{selected.provider || "—"}</dd></div>
-                <div><dt>Process / Thread</dt><dd className="mono">{selected.processId ?? "—"} / {selected.threadId ?? "—"}</dd></div>
-                <div><dt>User SID</dt><dd className="mono">{selected.userId || "—"}</dd></div>
-              </dl>
-              <div className="command-header"><div><p className="eyebrow">Full recorded content</p><h3>Command / message</h3></div><button className="btn copy-detail" onClick={() => copyCommand(selected)} disabled={!selected.message}><CopyIcon />{copied ? "Copied" : "Copy"}</button></div>
-              <pre className="command-content">{selected.message?.trim() || "No message was supplied for this event."}</pre>
-            </> : <div className="inspector-empty"><div className="inspect-mark">⌘</div><h2>Event details</h2><p>Select any row to view the complete recorded command, timestamp, process, user and log metadata.</p></div>}
-          </aside>
-        </main>
-      )}
+    <div className={`statusbar${error ? " is-error" : ""}`}>
+      {loading ? "Loading a small event page in the background..." : error ? error : scanned ? `Page ${pageIndex + 1} - ${rows.length} of ${entries.length} events. Select an event to inspect it.` : "The log has not been scanned yet - click Scan log to continue."}
     </div>
-  );
+
+    {!scanned && !loading ? <main className="scan-cta">
+      <img src="/hero.png" alt="PowerLog" draggable={false} />
+      <h1>PowerShell activity, clearly documented.</h1>
+      <p>Browse <code>Microsoft-Windows-PowerShell/Operational</code> in fast, small pages, including script blocks and their full recorded command text.</p>
+      <button className="btn btn-primary btn-large" onClick={scan}>Scan PowerShell log</button>
+    </main> : loading && entries.length === 0 ? <main className="empty">Loading the first event page...</main> : <main className="workspace">
+      <section className="table-wrap" aria-label="PowerShell events">
+        {scanned && entries.length === 0 ? <div className="empty">No entries were found in the PowerShell Operational log.</div> : null}
+        {scanned && entries.length > 0 && rows.length === 0 ? <div className="empty">No events match your search on this page.</div> : null}
+        {rows.length > 0 ? <table className="log-table"><thead><tr>
+          <th className="col-time" onClick={() => toggleSort("timeCreated")}>Time{sortGlyph("timeCreated")}</th>
+          <th className="col-level" onClick={() => toggleSort("level")}>Level{sortGlyph("level")}</th>
+          <th className="col-id" onClick={() => toggleSort("id")}>Event ID{sortGlyph("id")}</th>
+          <th>Recorded command / message</th>
+        </tr></thead><tbody>{rows.map((entry) => {
+          const entryKey = `${entry.recordId ?? entry.timeCreated}:${entry.id}`;
+          const tone = levelTone(entry.level);
+          return <tr key={entryKey} className={`tone-${tone}${selectedKey === entryKey ? " selected" : ""}`} onClick={() => setSelectedKey(entryKey)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedKey(entryKey); }} tabIndex={0} aria-label={`Open event ${entry.id}`}>
+            <td className="col-time mono">{formatTime(entry.timeCreated)}</td><td className="col-level"><span className={`badge badge-${tone}`}>{entry.level || "Verbose"}</span></td><td className="col-id mono">{entry.id}</td><td className="col-msg mono">{entry.message?.trim() || "-"}</td>
+          </tr>;
+        })}</tbody></table> : null}
+        {scanned && entries.length > 0 ? <nav className="pager" aria-label="Event log pages">
+          <button className="btn" onClick={previousPage} disabled={loading || pageIndex === 0}>Previous</button>
+          <span>Page <strong>{pageIndex + 1}</strong>{currentPage?.hasMore ? " - newest first" : " - oldest loaded events"}</span>
+          <button className="btn" onClick={nextPage} disabled={loading || !currentPage?.hasMore}>Next page</button>
+        </nav> : null}
+      </section>
+
+      <aside className="inspector" aria-label="Event details">
+        {selected ? <><div className="inspector-heading"><div><p className="eyebrow">{eventKind(selected)}</p><h2>Event {selected.id}</h2></div><button className="icon-button" onClick={() => setSelectedKey(null)} aria-label="Close event details">X</button></div>
+          <dl className="metadata"><div><dt>Time</dt><dd>{formatTime(selected.timeCreated)}</dd></div><div><dt>Record ID</dt><dd className="mono">{selected.recordId ?? "-"}</dd></div><div><dt>Computer</dt><dd>{selected.computer || "-"}</dd></div><div><dt>Provider</dt><dd>{selected.provider || "-"}</dd></div><div><dt>Process / Thread</dt><dd className="mono">{selected.processId ?? "-"} / {selected.threadId ?? "-"}</dd></div><div><dt>User SID</dt><dd className="mono">{selected.userId || "-"}</dd></div></dl>
+          <div className="command-header"><div><p className="eyebrow">Full recorded content</p><h3>Command / message</h3></div><button className="btn copy-detail" onClick={() => copyCommand(selected)} disabled={!selected.message}><CopyIcon />{copied ? "Copied" : "Copy"}</button></div>
+          <pre className="command-content">{selected.message?.trim() || "No message was supplied for this event."}</pre>
+        </> : <div className="inspector-empty"><div className="inspect-mark">i</div><h2>Event details</h2><p>Select any row to view the complete recorded command, timestamp, process, user and log metadata.</p></div>}
+      </aside>
+    </main>}
+  </div>;
 }
 
 export default App;
