@@ -1,5 +1,7 @@
 import { useCallback, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faArrowDown, faArrowUp, faCopy, faMagnifyingGlass, faRotateRight } from "@fortawesome/free-solid-svg-icons";
 import "./App.css";
 
 interface LogEntry {
@@ -64,10 +66,6 @@ function eventKind(entry: LogEntry): string {
   if (entry.id === 4103) return "Module logging";
   if (entry.id === 400 || entry.id === 403) return "Engine lifecycle";
   return entry.task || "PowerShell event";
-}
-
-function CopyIcon() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>;
 }
 
 function App() {
@@ -223,7 +221,7 @@ function App() {
     copyTimer.current = window.setTimeout(() => setCopied(false), 1600);
   };
 
-  const sortGlyph = (column: Key) => key === column ? (dir === "asc" ? " ^" : " v") : "";
+  const sortIcon = (column: Key) => key === column ? <FontAwesomeIcon className="sort-icon" icon={dir === "asc" ? faArrowUp : faArrowDown} aria-hidden="true" /> : null;
 
   const accentStyle = {
     "--accent": accent.color,
@@ -241,13 +239,13 @@ function App() {
       <img className="hero-logo" src="/hero.png" alt="PowerLog" draggable={false} />
       <div className="controls">
         <label className="search">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+          <FontAwesomeIcon icon={faMagnifyingGlass} aria-hidden="true" />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page" aria-label="Search event log" />
         </label>
         {accentPicker(true)}
         {fullScanActive ? <button className="btn" onClick={cancelFullScan}>Stop full scan</button> : <button className="btn" onClick={() => void fullScan()} disabled={loading} title="Load every recorded PowerShell event in the background">Full scan</button>}
         <button className="btn btn-primary" onClick={scan} disabled={loading} title="Read the newest PowerShell events">
-          <svg className={loading ? "spin" : ""} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
+          <FontAwesomeIcon className={loading ? "spin" : ""} icon={faRotateRight} aria-hidden="true" />
           {loading && !fullScanActive ? "Loading..." : scanned ? "Fast scan" : "Fast scan"}
         </button>
       </div>
@@ -265,15 +263,14 @@ function App() {
         <button className="scan-choice scan-choice-primary" onClick={scan}><span>Fast Scan</span><small>Loads the newest 100 events immediately. Browse older events page by page.</small></button>
         <button className="scan-choice" onClick={() => void fullScan()}><span>Full Scan</span><small>Loads every available event in the background. It can take longer on large logs.</small></button>
       </div>
-      {accentPicker()}
     </main> : loading && entries.length === 0 ? <main className="empty">Loading the first event page...</main> : <main className="workspace">
       <section className="table-wrap" aria-label="PowerShell events">
         {scanned && entries.length === 0 ? <div className="empty">No entries were found in the PowerShell Operational log.</div> : null}
         {scanned && entries.length > 0 && rows.length === 0 ? <div className="empty">No events match your search on this page.</div> : null}
         {rows.length > 0 ? <table className="log-table"><thead><tr>
-          <th className="col-time" onClick={() => toggleSort("timeCreated")}>Time{sortGlyph("timeCreated")}</th>
-          <th className="col-level" onClick={() => toggleSort("level")}>Level{sortGlyph("level")}</th>
-          <th className="col-id" onClick={() => toggleSort("id")}>Event ID{sortGlyph("id")}</th>
+          <th className="col-time" onClick={() => toggleSort("timeCreated")} aria-sort={key === "timeCreated" ? (dir === "asc" ? "ascending" : "descending") : "none"}>Time{sortIcon("timeCreated")}</th>
+          <th className="col-level" onClick={() => toggleSort("level")} aria-sort={key === "level" ? (dir === "asc" ? "ascending" : "descending") : "none"}>Level{sortIcon("level")}</th>
+          <th className="col-id" onClick={() => toggleSort("id")} aria-sort={key === "id" ? (dir === "asc" ? "ascending" : "descending") : "none"}>Event ID{sortIcon("id")}</th>
           <th>Recorded command / message</th>
         </tr></thead><tbody>{rows.map((entry) => {
           const entryKey = `${entry.recordId ?? entry.timeCreated}:${entry.id}`;
@@ -292,7 +289,7 @@ function App() {
       <aside className="inspector" aria-label="Event details">
         {selected ? <><div className="inspector-heading"><div><p className="eyebrow">{eventKind(selected)}</p><h2>Event {selected.id}</h2></div><button className="icon-button" onClick={() => setSelectedKey(null)} aria-label="Close event details">X</button></div>
           <dl className="metadata"><div><dt>Time</dt><dd>{formatTime(selected.timeCreated)}</dd></div><div><dt>Record ID</dt><dd className="mono">{selected.recordId ?? "-"}</dd></div><div><dt>Computer</dt><dd>{selected.computer || "-"}</dd></div><div><dt>Provider</dt><dd>{selected.provider || "-"}</dd></div><div><dt>Process / Thread</dt><dd className="mono">{selected.processId ?? "-"} / {selected.threadId ?? "-"}</dd></div><div><dt>User SID</dt><dd className="mono">{selected.userId || "-"}</dd></div></dl>
-          <div className="command-header"><div><p className="eyebrow">Full recorded content</p><h3>Command / message</h3></div><button className="btn copy-detail" onClick={() => copyCommand(selected)} disabled={!selected.message}><CopyIcon />{copied ? "Copied" : "Copy"}</button></div>
+          <div className="command-header"><div><p className="eyebrow">Full recorded content</p><h3>Command / message</h3></div><button className="btn copy-detail" onClick={() => copyCommand(selected)} disabled={!selected.message}><FontAwesomeIcon icon={faCopy} aria-hidden="true" />{copied ? "Copied" : "Copy"}</button></div>
           <pre className="command-content">{selected.message?.trim() || "No message was supplied for this event."}</pre>
         </> : <div className="inspector-empty"><div className="inspect-mark">i</div><h2>Event details</h2><p>Select any row to view the complete recorded command, timestamp, process, user and log metadata.</p></div>}
       </aside>
