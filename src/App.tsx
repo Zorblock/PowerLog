@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
@@ -25,6 +25,16 @@ interface LogPage {
 
 type Key = "timeCreated" | "id" | "level";
 type Dir = "asc" | "desc";
+
+const accents = [
+  { name: "White", color: "#ffffff", strong: "#e5e5e5", ink: "#0a0a0a" },
+  { name: "Blue", color: "#3b82f6", strong: "#2563eb", ink: "#ffffff" },
+  { name: "Violet", color: "#8b5cf6", strong: "#7c3aed", ink: "#ffffff" },
+  { name: "Emerald", color: "#10b981", strong: "#059669", ink: "#062e24" },
+  { name: "Rose", color: "#f43f5e", strong: "#e11d48", ink: "#ffffff" },
+] as const;
+
+type Accent = (typeof accents)[number];
 
 function parsePowerTime(value: string): Date {
   const legacy = /^\/Date\((-?\d+)\)\/$/.exec(value);
@@ -74,6 +84,7 @@ function App() {
   const [fullScanActive, setFullScanActive] = useState(false);
   const [fullScanComplete, setFullScanComplete] = useState(false);
   const [fullProgress, setFullProgress] = useState({ pages: 0, events: 0 });
+  const [accent, setAccent] = useState<Accent>(accents[0]);
   const copyTimer = useRef<number | null>(null);
   const scanToken = useRef(0);
 
@@ -214,7 +225,18 @@ function App() {
 
   const sortGlyph = (column: Key) => key === column ? (dir === "asc" ? " ^" : " v") : "";
 
-  return <div className="app">
+  const accentStyle = {
+    "--accent": accent.color,
+    "--accent-strong": accent.strong,
+    "--accent-ink": accent.ink,
+  } as CSSProperties;
+
+  const accentPicker = (compact = false) => <div className={`accent-picker${compact ? " compact" : ""}`} role="group" aria-label="Accent color">
+    {!compact ? <span>Accent color</span> : null}
+    <div className="accent-options">{accents.map((option) => <button key={option.name} type="button" className={`accent-dot${accent.name === option.name ? " active" : ""}`} style={{ backgroundColor: option.color }} onClick={() => setAccent(option)} aria-label={`Use ${option.name} accent`} title={option.name} />)}</div>
+  </div>;
+
+  return <div className="app" style={accentStyle}>
     <header className="topbar">
       <img className="hero-logo" src="/hero.png" alt="PowerLog" draggable={false} />
       <div className="controls">
@@ -222,6 +244,7 @@ function App() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page" aria-label="Search event log" />
         </label>
+        {accentPicker(true)}
         {fullScanActive ? <button className="btn" onClick={cancelFullScan}>Stop full scan</button> : <button className="btn" onClick={() => void fullScan()} disabled={loading} title="Load every recorded PowerShell event in the background">Full scan</button>}
         <button className="btn btn-primary" onClick={scan} disabled={loading} title="Read the newest PowerShell events">
           <svg className={loading ? "spin" : ""} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
@@ -242,6 +265,7 @@ function App() {
         <button className="scan-choice scan-choice-primary" onClick={scan}><span>Fast Scan</span><small>Loads the newest 100 events immediately. Browse older events page by page.</small></button>
         <button className="scan-choice" onClick={() => void fullScan()}><span>Full Scan</span><small>Loads every available event in the background. It can take longer on large logs.</small></button>
       </div>
+      {accentPicker()}
     </main> : loading && entries.length === 0 ? <main className="empty">Loading the first event page...</main> : <main className="workspace">
       <section className="table-wrap" aria-label="PowerShell events">
         {scanned && entries.length === 0 ? <div className="empty">No entries were found in the PowerShell Operational log.</div> : null}
