@@ -1,6 +1,6 @@
 # PowerLog
 
-A desktop viewer for `Microsoft-Windows-PowerShell/Operational`. Events are loaded in responsive 100-record pages, so large logs do not freeze the application. Select an event to inspect its recorded command/message, timestamp, event and record IDs, computer, process, thread and user context.
+A desktop viewer for `Microsoft-Windows-PowerShell/Operational`. **Fast Scan** loads the newest 100 events and lets you browse older pages on demand. **Full Scan** reads every event in those same small background pages with progress reporting, so large logs do not freeze the application. Select an event to inspect its recorded command/message, timestamp, event and record IDs, computer, process, thread and user context.
 
 ## Development
 

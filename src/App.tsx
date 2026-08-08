@@ -71,17 +71,26 @@ function App() {
   const [dir, setDir] = useState<Dir>("desc");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [fullScanActive, setFullScanActive] = useState(false);
+  const [fullScanComplete, setFullScanComplete] = useState(false);
+  const [fullProgress, setFullProgress] = useState({ pages: 0, events: 0 });
   const copyTimer = useRef<number | null>(null);
+  const scanToken = useRef(0);
 
   const currentPage = pages[pageIndex];
   const entries = currentPage?.entries ?? [];
+
+  const fetchPage = useCallback(async (beforeRecordId: number | null) => {
+    const page = await invoke<LogPage>("get_power_log_page", { beforeRecordId });
+    if (!Array.isArray(page.entries)) throw new Error("The event log returned an invalid page.");
+    return page;
+  }, []);
 
   const loadPage = useCallback(async (beforeRecordId: number | null, index: number, reset = false) => {
     setLoading(true);
     setError(null);
     try {
-      const page = await invoke<LogPage>("get_power_log_page", { beforeRecordId });
-      if (!Array.isArray(page.entries)) throw new Error("The event log returned an invalid page.");
+      const page = await fetchPage(beforeRecordId);
       setPages((current) => {
         if (reset) return [page];
         const next = current.slice(0, index);
@@ -96,9 +105,60 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchPage]);
 
-  const scan = useCallback(() => { void loadPage(null, 0, true); }, [loadPage]);
+  const scan = useCallback(() => {
+    scanToken.current += 1;
+    setFullScanActive(false);
+    setFullScanComplete(false);
+    setFullProgress({ pages: 0, events: 0 });
+    void loadPage(null, 0, true);
+  }, [loadPage]);
+
+  const fullScan = useCallback(async () => {
+    const token = scanToken.current + 1;
+    scanToken.current = token;
+    setLoading(true);
+    setError(null);
+    setFullScanActive(true);
+    setFullScanComplete(false);
+    setFullProgress({ pages: 0, events: 0 });
+    setPages([]);
+    setPageIndex(0);
+    setSelectedKey(null);
+
+    let beforeRecordId: number | null = null;
+    let pageIndex = 0;
+    let eventCount = 0;
+    try {
+      while (true) {
+        const page = await fetchPage(beforeRecordId);
+        if (scanToken.current !== token) return;
+        eventCount += page.entries.length;
+        const loadedIndex = pageIndex;
+        setPages((current) => loadedIndex === 0 ? [page] : [...current, page]);
+        setScanned(true);
+        setFullProgress({ pages: loadedIndex + 1, events: eventCount });
+        if (!page.hasMore) break;
+        beforeRecordId = page.nextBeforeRecordId;
+        pageIndex = loadedIndex + 1;
+      }
+      setFullScanComplete(true);
+    } catch (cause) {
+      if (scanToken.current === token) setError(String(cause));
+    } finally {
+      if (scanToken.current === token) {
+        setLoading(false);
+        setFullScanActive(false);
+      }
+    }
+  }, [fetchPage]);
+
+  const cancelFullScan = () => {
+    scanToken.current += 1;
+    setLoading(false);
+    setFullScanActive(false);
+  };
 
   const previousPage = () => {
     if (pageIndex === 0) return;
@@ -162,22 +222,26 @@ function App() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search this page" aria-label="Search event log" />
         </label>
+        {fullScanActive ? <button className="btn" onClick={cancelFullScan}>Stop full scan</button> : <button className="btn" onClick={() => void fullScan()} disabled={loading} title="Load every recorded PowerShell event in the background">Full scan</button>}
         <button className="btn btn-primary" onClick={scan} disabled={loading} title="Read the newest PowerShell events">
           <svg className={loading ? "spin" : ""} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
-          {loading ? "Loading..." : scanned ? "Refresh" : "Scan log"}
+          {loading && !fullScanActive ? "Loading..." : scanned ? "Fast scan" : "Fast scan"}
         </button>
       </div>
     </header>
 
     <div className={`statusbar${error ? " is-error" : ""}`}>
-      {loading ? "Loading a small event page in the background..." : error ? error : scanned ? `Page ${pageIndex + 1} - ${rows.length} of ${entries.length} events. Select an event to inspect it.` : "The log has not been scanned yet - click Scan log to continue."}
+      {fullScanActive ? `Full scan in progress: ${fullProgress.events.toLocaleString()} events across ${fullProgress.pages} pages. The app remains usable.` : error ? error : fullScanComplete ? `Full scan complete: ${fullProgress.events.toLocaleString()} events across ${fullProgress.pages} pages.` : loading ? "Loading a small event page in the background..." : scanned ? `Page ${pageIndex + 1} - ${rows.length} of ${entries.length} events. Select an event to inspect it.` : "Choose a scan mode to continue."}
     </div>
 
     {!scanned && !loading ? <main className="scan-cta">
       <img src="/hero.png" alt="PowerLog" draggable={false} />
       <h1>PowerShell activity, clearly documented.</h1>
-      <p>Browse <code>Microsoft-Windows-PowerShell/Operational</code> in fast, small pages, including script blocks and their full recorded command text.</p>
-      <button className="btn btn-primary btn-large" onClick={scan}>Scan PowerShell log</button>
+      <p>Choose how PowerLog should read <code>Microsoft-Windows-PowerShell/Operational</code>. Both modes keep the window responsive and include script blocks with their recorded command text.</p>
+      <div className="scan-actions">
+        <button className="scan-choice scan-choice-primary" onClick={scan}><span>Fast Scan</span><small>Loads the newest 100 events immediately. Browse older events page by page.</small></button>
+        <button className="scan-choice" onClick={() => void fullScan()}><span>Full Scan</span><small>Loads every available event in the background. It can take longer on large logs.</small></button>
+      </div>
     </main> : loading && entries.length === 0 ? <main className="empty">Loading the first event page...</main> : <main className="workspace">
       <section className="table-wrap" aria-label="PowerShell events">
         {scanned && entries.length === 0 ? <div className="empty">No entries were found in the PowerShell Operational log.</div> : null}
