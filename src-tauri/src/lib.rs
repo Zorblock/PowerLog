@@ -12,11 +12,20 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// A single entry from the PowerShell Operational event log.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogEntry {
     pub time_created: String,
     pub id: u32,
     pub level: String,
     pub message: Option<String>,
+    pub provider: String,
+    pub record_id: Option<u64>,
+    pub computer: String,
+    pub user_id: Option<String>,
+    pub process_id: Option<u32>,
+    pub thread_id: Option<u32>,
+    pub task: Option<String>,
+    pub opcode: Option<String>,
 }
 
 /// Raw row as returned by the PowerShell JSON pipeline.
@@ -30,6 +39,22 @@ struct RawEntry {
     level: u32,
     #[serde(rename = "Message", default)]
     message: Option<String>,
+    #[serde(rename = "ProviderName", default)]
+    provider: String,
+    #[serde(rename = "RecordId", default)]
+    record_id: Option<u64>,
+    #[serde(rename = "MachineName", default)]
+    computer: String,
+    #[serde(rename = "UserId", default)]
+    user_id: Option<String>,
+    #[serde(rename = "ProcessId", default)]
+    process_id: Option<u32>,
+    #[serde(rename = "ThreadId", default)]
+    thread_id: Option<u32>,
+    #[serde(rename = "TaskDisplayName", default)]
+    task: Option<String>,
+    #[serde(rename = "OpcodeDisplayName", default)]
+    opcode: Option<String>,
 }
 
 impl From<RawEntry> for LogEntry {
@@ -39,6 +64,14 @@ impl From<RawEntry> for LogEntry {
             id: r.id,
             level: level_name(r.level).to_string(),
             message: r.message,
+            provider: r.provider,
+            record_id: r.record_id,
+            computer: r.computer,
+            user_id: r.user_id,
+            process_id: r.process_id,
+            thread_id: r.thread_id,
+            task: r.task,
+            opcode: r.opcode,
         }
     }
 }
@@ -65,9 +98,25 @@ fn get_power_logs() -> Result<Vec<LogEntry>, String> {
     const SCRIPT: &str = r#"
 $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $logName = 'Microsoft-Windows-PowerShell/Operational'
-$evts = Get-WinEvent -LogName $logName -MaxEvents 200 -ErrorAction SilentlyContinue
+$evts = Get-WinEvent -LogName $logName -ErrorAction Stop
 if ($null -eq $evts) { $evts = @() }
-$evts | Select-Object TimeCreated, Id, Level, Message |
+$evts | ForEach-Object {
+    [PSCustomObject]@{
+        # Explicit ISO 8601 avoids locale-dependent JSON date formats.
+        TimeCreated       = $_.TimeCreated.ToUniversalTime().ToString('o')
+        Id                = $_.Id
+        Level             = $_.Level
+        Message           = $_.Message
+        ProviderName      = $_.ProviderName
+        RecordId          = $_.RecordId
+        MachineName       = $_.MachineName
+        UserId            = if ($_.UserId) { $_.UserId.Value } else { $null }
+        ProcessId         = $_.ProcessId
+        ThreadId          = $_.ThreadId
+        TaskDisplayName   = $_.TaskDisplayName
+        OpcodeDisplayName = $_.OpcodeDisplayName
+    }
+} |
     ConvertTo-Json -Depth 5
 "#;
 
@@ -83,11 +132,15 @@ $evts | Select-Object TimeCreated, Id, Level, Message |
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let output = cmd.output().map_err(|e| format!("Failed to start PowerShell: {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to start PowerShell: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("PowerShell exited with error: {stderr}"));
+        return Err(format!(
+            "Could not read the PowerShell Operational log: {stderr}"
+        ));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);

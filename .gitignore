@@ -31,6 +31,7 @@ pnpm-debug.log*
 # ---- Tauri / Rust ----
 src-tauri/target/
 src-tauri/gen/schemas/
+src-tauri/.tauri/
 
 # ---- Editor / IDE ----
 .vscode/*

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "release": "tauri build --no-bundle && node scripts/release.mjs",
-    "start": "npm run release && node scripts/start.mjs"
+    "start": "tauri dev",
+    "start:release": "npm run release && node scripts/start.mjs"
   },
   "dependencies": {
     "react": "^19.1.0",
